@@ -1,4 +1,19 @@
+import { EventEmitter } from "events";
 import { Color, Block, TokenPositions, GameState } from "./types";
+
+/**
+ * A snapshot of the game's state, emitted whenever changes occur.
+ */
+export interface LudoGameState {
+  turn: Color;
+  tokenPositions: TokenPositions;
+  ranking: Color[];
+  boardStatus: string;
+  diceRoll: number | null;
+  lastDiceRoll: number | null;
+  gameState: GameState;
+  players: Color[];
+}
 
 /**
  * Generate a random integer between min and max, inclusive.
@@ -6,32 +21,24 @@ import { Color, Block, TokenPositions, GameState } from "./types";
  * @param max - The upper bound (inclusive).
  * @returns A random integer between min and max.
  */
-function random(min: number, max: number) {
+function random(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 /**
- * The Ludo game class.
- *
- * Handles:
- * - Board setup (15x15)
- * - Tracking token positions
- * - Dice rolling & skipping after 3 consecutive sixes
- * - Capturing enemy tokens
- * - Ranking & finishing conditions
- * - AI helper (bestMove)
+ * The Ludo class extends EventEmitter so you can listen to "stateChange" events.
  */
-export class Ludo {
+export class Ludo extends EventEmitter {
   /** The 15x15 board, with `Block` or `null` if not used. */
   board!: (Block | null)[][];
 
   /** The positions of all tokens for each color. */
   tokenPositions!: TokenPositions;
 
-  /** The color currently taking their turn. */
+  /** The color currently taking its turn. */
   currentPiece!: Color;
 
-  /** The list of colors in the order they have completely finished (all tokens at final). */
+  /** Which colors have completely finished (all tokens at final), in order. */
   ranking: Color[] = [];
 
   /** The current dice roll value, or null if not rolled yet. */
@@ -46,34 +53,31 @@ export class Ludo {
   /** Number of consecutive sixes rolled by the current player. */
   currentConsecutiveSixes = 0;
 
-  /** Total length of the track, from index 0 to 56. */
+  /** Track length from index 0 to 56. */
   readonly TRACK_LENGTH = 57;
 
-  /** The indices that are safe zones (cannot capture). */
+  /** Indices on the track considered "safe" (cannot be captured). */
   readonly safeZones: number[] = [0, 8, 13, 21, 26, 34, 39, 47];
 
-  /** A status message about the current board state. */
+  /** A status message about the current board state (e.g. "Blue captured a token"). */
   currentBoardStatus = "";
 
-  /** Current game state (waiting to roll, waiting to select a token, or finished). */
+  /** The overall game state. */
   gameState: GameState = "playerHasToRollADice";
 
-  /**
-   * The color-specific path coordinates: { red: [ [row,col], ...], green: [...], ... }.
-   */
+  /** Color-specific paths for each player's tokens ([row, col] coordinates). */
   colorPaths!: Record<Color, [number, number][]>;
 
-  /**
-   * The active player colors in this game.
-   * For instance, with 2 players, it might be ["blue", "green"].
-   */
+  /** The active player colors in this game (e.g. ["blue","red","green"]). */
   players: Color[] = [];
 
   /**
-   * Construct a Ludo game for 2, 3, or 4 players.
-   * @param numberOfPlayers - How many players are playing (2..4).
+   * Create a new Ludo game with the specified number of players (2..4).
+   * Emits a "stateChange" event whenever the internal state changes.
    */
   constructor(private numberOfPlayers: 2 | 3 | 4 = 4) {
+    super();
+
     // Decide which colors to use
     if (numberOfPlayers === 2) {
       this.players = ["blue", "green"];
@@ -83,21 +87,27 @@ export class Ludo {
       this.players = ["blue", "red", "green", "yellow"];
     }
 
-    // Init everything
     this.reset();
   }
 
   /**
-   * Resets the entire board state, token positions,
-   * and randomly selects which color starts.
+   * Emit the current state to all listeners of "stateChange".
    */
-  reset() {
-    // Build an empty 15x15 board
+  private emitStateChange(): void {
+    this.emit("stateChange", this.getCurrentState());
+  }
+
+  /**
+   * Reset the entire board, token positions, ranking, etc.
+   * Randomly selects which color starts.
+   */
+  reset(): void {
+    // Create a 15x15 board (null means no block data)
     this.board = Array.from({ length: 15 }, () =>
       Array.from({ length: 15 }, () => null)
     );
 
-    // Initialize all token positions to -1 (home)
+    // Initialize token positions (all at -1 = "home")
     this.tokenPositions = {
       red: [-1, -1, -1, -1],
       green: [-1, -1, -1, -1],
@@ -105,7 +115,6 @@ export class Ludo {
       blue: [-1, -1, -1, -1],
     };
 
-    // Clear ranking, dice, and other fields
     this.ranking = [];
     this.currentDiceRoll = null;
     this.lastDiceRoll = null;
@@ -118,7 +127,7 @@ export class Ludo {
     const randomIndex = random(0, this.players.length - 1);
     this.currentPiece = this.players[randomIndex];
 
-    // Mark home squares for each active color
+    // Define home positions for each color
     const homePositions: Record<Color, [number, number][]> = {
       red: [
         [1, 1],
@@ -146,15 +155,15 @@ export class Ludo {
       ],
     };
 
+    // Mark home squares for active players
     for (const color of this.players) {
-      for (const [r, c] of homePositions[color]) {
+      homePositions[color].forEach(([r, c]) => {
         this.board[r][c] = { isHome: color };
-      }
+      });
     }
 
-    // Build base path for "red"
+    // Build the base "red" path of length 57
     const redPath: [number, number][] = [];
-    // The path logic:
     for (let c = 1; c <= 5; c++) redPath.push([6, c]);
     for (let r = 5; r >= 0; r--) redPath.push([r, 6]);
     for (let c = 7; c <= 8; c++) redPath.push([0, c]);
@@ -168,29 +177,29 @@ export class Ludo {
     for (let c = 5; c >= 0; c--) redPath.push([8, c]);
     for (let c = 0; c <= 6; c++) redPath.push([7, c]);
 
-    // Create color paths by rotating the red path
+    // Rotate redPath for other colors
     const paths: Record<Color, [number, number][]> = {
       red: redPath,
       green: redPath.map((coord) => this.rotateCoord(coord, 90)),
       yellow: redPath.map((coord) => this.rotateCoord(coord, 180)),
       blue: redPath.map((coord) => this.rotateCoord(coord, 270)),
     };
-
     this.colorPaths = paths;
 
-    // Mark track indices on the board for active colors
+    // Mark track indices & special flags on the board
     for (const color of this.players) {
       const colorPath = paths[color];
       colorPath.forEach(([r, c], index) => {
-        if (!this.board[r][c]) this.board[r][c] = {};
-
+        if (!this.board[r][c]) {
+          this.board[r][c] = {};
+        }
         // Mark the track index
         if (color === "red") this.board[r][c]!.redTrack = index;
         if (color === "green") this.board[r][c]!.greenTrack = index;
         if (color === "blue") this.board[r][c]!.blueTrack = index;
         if (color === "yellow") this.board[r][c]!.yellowTrack = index;
 
-        // Safe zone
+        // Safe zones
         if (this.safeZones.includes(index)) {
           this.board[r][c]!.isSafeZone = true;
         }
@@ -199,7 +208,7 @@ export class Ludo {
           this.board[r][c]!.isStartingPosition = color;
           this.board[r][c]!.isSafeZone = true;
         }
-        // On path to final => indices 51..55
+        // On path to final => 51..55
         if (index >= 51 && index <= 55) {
           this.board[r][c]!.isOnPathToFinalPosition = color;
         }
@@ -209,13 +218,13 @@ export class Ludo {
         }
       });
     }
+
+    // Emit new state
+    this.emitStateChange();
   }
 
   /**
-   * Rotate a coordinate (r, c) 90/180/270 degrees about (7,7).
-   * @param coord - [row, col].
-   * @param angle - The angle of rotation (90, 180, or 270).
-   * @returns The new [row, col] after rotation.
+   * Rotate (r,c) by 90/180/270 around center (7,7).
    */
   private rotateCoord(
     [r, c]: [number, number],
@@ -233,20 +242,20 @@ export class Ludo {
   }
 
   /**
-   * Roll the dice for the current player, if the game state allows it.
-   *
-   * @returns The dice roll value (1..6) or -1 if invalid to roll now.
+   * Roll the dice for the current player, if allowed.
+   * Automatically checks for consecutive sixes & skip turn if needed.
    */
   rollDiceForCurrentPiece(): number {
     if (this.gameState !== "playerHasToRollADice") {
       this.currentBoardStatus = `Invalid action. Current state: ${this.gameState}.`;
+      this.emitStateChange();
       return -1;
     }
 
-    // If there's already a pending roll, do nothing
     if (this.currentDiceRoll !== null) {
       this.currentBoardStatus =
-        "Already rolled. You must select a token or pass.";
+        "Already rolled. You must move a token or wait/pass.";
+      this.emitStateChange();
       return this.currentDiceRoll;
     }
 
@@ -258,45 +267,47 @@ export class Ludo {
     if (rollValue === 6) {
       this.currentConsecutiveSixes++;
       if (this.currentConsecutiveSixes === 3) {
-        // skip turn
-        this.currentBoardStatus = `Three consecutive sixes! Turn skipped for ${this.currentPiece}.`;
+        this.currentBoardStatus = `Three consecutive sixes. Turn skipped for ${this.currentPiece}.`;
         this.resetTurnState(false);
         this.nextTurn();
+        this.emitStateChange();
         return rollValue;
       }
     } else {
       this.currentConsecutiveSixes = 0;
     }
 
-    // Identify valid moves
+    // Determine valid moves
     this.validTokenIndices = this.getValidMoves(this.currentPiece, rollValue);
     if (this.validTokenIndices.length === 0) {
       this.currentBoardStatus = `No valid moves for ${this.currentPiece} (rolled ${rollValue}). Passing turn.`;
       this.resetTurnState(false);
       this.nextTurn();
+      this.emitStateChange();
     } else {
       this.gameState = "playerHasToSelectAPosition";
+      this.emitStateChange();
     }
-
     return rollValue;
   }
 
   /**
-   * The user (or AI) selects which token to move, given the current dice roll.
-   *
-   * @param tokenIndex - The index of the token (0..3).
+   * The user/bot picks which token to move (0..3), if valid.
    */
   selectToken(tokenIndex: number): void {
     if (this.gameState !== "playerHasToSelectAPosition") {
       this.currentBoardStatus = `Invalid action. State: ${this.gameState}`;
+      this.emitStateChange();
       return;
     }
     if (this.currentDiceRoll === null) {
       this.currentBoardStatus = "You must roll before selecting a token.";
+      this.emitStateChange();
       return;
     }
     if (!this.validTokenIndices.includes(tokenIndex)) {
-      this.currentBoardStatus = "That token isn't a valid choice this turn.";
+      this.currentBoardStatus = "That token is not a valid choice.";
+      this.emitStateChange();
       return;
     }
 
@@ -304,127 +315,115 @@ export class Ludo {
     const currentPos = this.tokenPositions[this.currentPiece][tokenIndex];
 
     let newPos: number;
-    // If token is at home, you need a 6 to leave
+    // If at home (-1), need a 6 to move out
     if (currentPos === -1) {
       if (roll !== 6) {
-        this.currentBoardStatus = "Can't leave home without rolling a 6.";
+        this.currentBoardStatus = "Cannot leave home without rolling a 6.";
+        this.emitStateChange();
         return;
       }
       newPos = 0;
     } else {
-      // Ensure we don't go past the final square
       if (currentPos + roll > this.TRACK_LENGTH - 1) {
-        this.currentBoardStatus = "Move would exceed final square. Can't move.";
+        this.currentBoardStatus = "Move would go beyond final square. Invalid.";
+        this.emitStateChange();
         return;
       }
       newPos = currentPos + roll;
     }
 
-    // Perform move
+    // Move the token
     this.tokenPositions[this.currentPiece][tokenIndex] = newPos;
 
-    // Handle captures
+    // Check collisions/captures (unless final)
     let captures = 0;
     if (newPos !== 56 && !this.safeZones.includes(newPos)) {
       captures = this.handleCollisions(newPos, this.currentPiece);
     }
 
-    // Check if token just finished
+    // Check if this token just finished
     if (newPos === 56) {
       const allDone = this.tokenPositions[this.currentPiece].every(
-        (pos) => pos === 56
+        (p) => p === 56
       );
       if (allDone && !this.ranking.includes(this.currentPiece)) {
         this.ranking.push(this.currentPiece);
       }
     }
 
-    // Reset dice and valid moves
     this.resetTurnState(false);
 
-    // If captured or rolled a 6, same player's turn
+    // If you captured or rolled a 6, same player's turn
     if (captures > 0) {
       this.currentBoardStatus = `${this.currentPiece} captured ${captures} token(s). Roll again!`;
       this.gameState = "playerHasToRollADice";
+      this.emitStateChange();
       return;
     }
     if (roll === 6) {
       this.currentBoardStatus = `${this.currentPiece} rolled a 6. Roll again!`;
       this.gameState = "playerHasToRollADice";
+      this.emitStateChange();
       return;
     }
 
-    // Otherwise move to next player
+    // Otherwise go to next turn
     this.nextTurn();
+    this.emitStateChange();
   }
 
   /**
-   * Returns an array of token indices that can be moved given the roll value.
-   * @param color - Which color's tokens to check.
-   * @param roll - The dice roll value (1..6).
+   * Return valid token indices for a given dice roll.
    */
   private getValidMoves(color: Color, roll: number): number[] {
     const positions = this.tokenPositions[color];
     const valid: number[] = [];
-
     for (let i = 0; i < 4; i++) {
       const pos = positions[i];
-      // If already finished, skip
+      // If already at final, skip
       if (pos === 56) continue;
       // If at home
       if (pos === -1) {
-        if (roll === 6) {
-          valid.push(i);
-        }
+        if (roll === 6) valid.push(i);
       } else {
-        // On the track (don't go beyond 56)
-        if (pos + roll <= 56) {
-          valid.push(i);
-        }
+        if (pos + roll <= 56) valid.push(i);
       }
     }
     return valid;
   }
 
   /**
-   * When a token moves to newPos, check if any opponent token is on that square and capture it (send it home).
-   * @param newPos - The track index the current token just moved to.
-   * @param movingColor - Which color made the move.
-   * @returns The number of captured tokens.
+   * Check if any opponent is on newPos. If so, capture them (send home).
+   * Returns number of captures.
    */
   private handleCollisions(newPos: number, movingColor: Color): number {
     let captures = 0;
     const [destR, destC] = this.colorPaths[movingColor][newPos];
 
     for (const color of this.players) {
-      if (color === movingColor) continue; // don't capture your own
+      if (color === movingColor) continue;
       for (let i = 0; i < 4; i++) {
         const oppPos = this.tokenPositions[color][i];
         if (oppPos < 0 || oppPos === 56) continue; // home or finished
         const [r2, c2] = this.colorPaths[color][oppPos];
         if (r2 === destR && c2 === destC) {
-          // capture!
-          this.tokenPositions[color][i] = -1;
+          this.tokenPositions[color][i] = -1; // send home
           captures++;
         }
       }
     }
-
     return captures;
   }
 
   /**
-   * Moves on to the next player's turn, unless the game is finished.
+   * Proceed to the next player's turn, or end the game if all finished.
    */
   private nextTurn() {
-    // If all colors are ranked, game ends
     if (this.ranking.length >= this.players.length) {
       this.gameState = "gameFinished";
-      this.currentBoardStatus = "Game Over! All players have finished.";
+      this.currentBoardStatus = "Game Over! All players finished.";
       return;
     }
-
-    // Advance to next color in the rotation
     const idx = this.players.indexOf(this.currentPiece);
     this.currentPiece = this.players[(idx + 1) % this.players.length];
     this.currentConsecutiveSixes = 0;
@@ -433,8 +432,7 @@ export class Ludo {
   }
 
   /**
-   * Resets current dice roll and valid moves.
-   * @param clearLastDiceRoll - Whether to also clear the lastDiceRoll.
+   * Reset the current dice roll & valid token indices. Optionally clear lastDiceRoll.
    */
   private resetTurnState(clearLastDiceRoll = true) {
     this.currentDiceRoll = null;
@@ -445,9 +443,9 @@ export class Ludo {
   }
 
   /**
-   * Get the current overall state, useful for UI and debugging.
+   * Returns a snapshot of the current state, used by emitStateChange() or for UI.
    */
-  getCurrentState() {
+  getCurrentState(): LudoGameState {
     return {
       turn: this.currentPiece,
       tokenPositions: this.tokenPositions,
@@ -461,21 +459,19 @@ export class Ludo {
   }
 
   /**
-   * Provides a basic AI "best move" by evaluating potential captures, safety, and approaching final.
-   *
-   * @returns The token index that has the best outcome, or -1 if no valid moves.
+   * A basic AI heuristic for picking the best token to move given currentDiceRoll.
+   * Returns -1 if no moves.
    */
   bestMove(): number {
     if (this.currentDiceRoll === null) {
       console.warn("bestMove called but no dice roll available");
       return -1;
     }
-
     const roll = this.currentDiceRoll;
     const valid = this.getValidMoves(this.currentPiece, roll);
     if (valid.length === 0) return -1;
 
-    // Arbitrary weighting
+    // Some scoring weights
     const WEIGHTS = {
       CAPTURE_BONUS: 50,
       LEAVE_HOME_BONUS: 35,
@@ -498,12 +494,10 @@ export class Ludo {
       if (currentPos === -1 && roll === 6) {
         score += WEIGHTS.LEAVE_HOME_BONUS;
       }
-
-      // Safe zone bonus
+      // Safe zone landing
       if (this.safeZones.includes(newPos)) {
         score += WEIGHTS.LAND_SAFE_ZONE_BONUS;
       }
-
       // Potential captures
       if (newPos !== 56 && !this.safeZones.includes(newPos)) {
         const [destR, destC] = this.colorPaths[this.currentPiece][newPos];
@@ -521,19 +515,17 @@ export class Ludo {
           score += captures * WEIGHTS.CAPTURE_BONUS;
         }
       }
-
-      // Approaching final or final
+      // Approaching final or finishing
       if (newPos >= 51 && newPos < 56) {
         score += WEIGHTS.APPROACH_FINAL_BONUS;
       }
       if (newPos === 56) {
         score += WEIGHTS.REACH_FINAL_BONUS;
       }
-
       // Distance factor
       score += newPos * WEIGHTS.DISTANCE_ADVANCE_FACTOR;
 
-      // Risk penalty if opponents could capture
+      // Risk penalty
       if (newPos < 56) {
         const [myR, myC] = this.colorPaths[this.currentPiece][newPos];
         let riskyOpponents = 0;
@@ -542,7 +534,6 @@ export class Ludo {
           for (let oppI = 0; oppI < 4; oppI++) {
             const oppPos = this.tokenPositions[oppColor][oppI];
             if (oppPos < 0 || oppPos === 56) continue;
-            // If opponent can land here with a 1..6 roll
             for (let diceCheck = 1; diceCheck <= 6; diceCheck++) {
               const testPos = oppPos + diceCheck;
               if (testPos <= 56) {
@@ -560,7 +551,7 @@ export class Ludo {
         }
       }
 
-      // Pick the best move
+      // Pick the best
       if (score > bestScore) {
         bestScore = score;
         bestIndex = i;

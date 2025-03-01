@@ -25,6 +25,10 @@
   "author": "Ayush Raj",
   "license": "MIT",
   "devDependencies": {
+    "@types/events": "^3.0.3",
     "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "events": "^3.3.0"
   }
 }
