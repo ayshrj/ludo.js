@@ -26,6 +26,18 @@ function random(min: number, max: number): number {
 }
 
 /**
+ * Generate initial position of the tokens
+ */
+export function initializeTokenPosition(): TokenPositions {
+  return {
+    red: [-1, -1, -1, -1],
+    green: [-1, -1, -1, -1],
+    yellow: [-1, -1, -1, -1],
+    blue: [-1, -1, -1, -1],
+  };
+}
+
+/**
  * The Ludo class extends EventEmitter so you can listen to "stateChange" events.
  */
 export class Ludo extends EventEmitter {
@@ -108,12 +120,7 @@ export class Ludo extends EventEmitter {
     );
 
     // Initialize token positions (all at -1 = "home")
-    this.tokenPositions = {
-      red: [-1, -1, -1, -1],
-      green: [-1, -1, -1, -1],
-      yellow: [-1, -1, -1, -1],
-      blue: [-1, -1, -1, -1],
-    };
+    this.tokenPositions = initializeTokenPosition();
 
     this.ranking = [];
     this.currentDiceRoll = null;

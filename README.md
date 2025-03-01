@@ -42,6 +42,7 @@ game. It handles:
     - [`.currentPiece`](#currentpiece)
     - [Event Emitter: `"stateChange"`](#event-emitter-statechange)
     - [`.players`](#players)
+    - [`initializeTokenPosition()`](#initializetokenposition)
   - [Example: React Integration](#example-react-integration)
   - [Advanced Usage Notes](#advanced-usage-notes)
   - [License](#license)
@@ -236,6 +237,28 @@ game.on("stateChange", (state) => {
 ### `.players`
 The array of active colors, in turn order. For example, with 3 players it might
 be `["blue","red","green"]`.
+
+---
+
+### `initializeTokenPosition()`
+A utility function that initializes the token positions for all colors. Each token starts at `-1` (home).
+
+```ts
+/**
+ * Initializes the token positions for all colors.
+ * @returns {TokenPositions} An object with token positions for each color.
+ * @example
+ * const tokenPositions = initializeTokenPosition();
+ * // Returns:
+ * // {
+ * //   red: [-1, -1, -1, -1],
+ * //   green: [-1, -1, -1, -1],
+ * //   yellow: [-1, -1, -1, -1],
+ * //   blue: [-1, -1, -1, -1]
+ * // }
+ */
+function initializeTokenPosition(): TokenPositions;
+```
 
 ---
 
