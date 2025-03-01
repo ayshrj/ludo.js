@@ -1,0 +1,25 @@
+{
+  "name": "@ayshrj/ludo.js",
+  "version": "1.0.2",
+  "description": "A TypeScript-based Ludo game library",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ludo",
+    "board game",
+    "typescript",
+    "game",
+    "ai"
+  ],
+  "author": "Ayush Raj",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}
