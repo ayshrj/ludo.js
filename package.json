@@ -1,7 +1,7 @@
 {
   "name": "@ayshrj/ludo.js",
-  "version": "1.0.3",
-  "description": "A TypeScript-based Ludo game library",
+  "version": "1.0.4",
+  "description": "A TypeScript-based headless Ludo game engine for simulating game logic, AI moves, and game state management.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "repository": {
