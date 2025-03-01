@@ -33,3 +33,17 @@ export type GameState =
   | "playerHasToRollADice"
   | "playerHasToSelectAPosition"
   | "gameFinished";
+
+/**
+ * A snapshot of the game's state, emitted whenever changes occur.
+ */
+export interface LudoGameState {
+  turn: Color;
+  tokenPositions: TokenPositions;
+  ranking: Color[];
+  boardStatus: string;
+  diceRoll: number | null;
+  lastDiceRoll: number | null;
+  gameState: GameState;
+  players: Color[];
+}

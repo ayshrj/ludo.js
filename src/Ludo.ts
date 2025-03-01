@@ -1,19 +1,11 @@
 import { EventEmitter } from "events";
-import { Color, Block, TokenPositions, GameState } from "./types";
-
-/**
- * A snapshot of the game's state, emitted whenever changes occur.
- */
-export interface LudoGameState {
-  turn: Color;
-  tokenPositions: TokenPositions;
-  ranking: Color[];
-  boardStatus: string;
-  diceRoll: number | null;
-  lastDiceRoll: number | null;
-  gameState: GameState;
-  players: Color[];
-}
+import {
+  Color,
+  Block,
+  TokenPositions,
+  GameState,
+  LudoGameState,
+} from "./types";
 
 /**
  * Generate a random integer between min and max, inclusive.
